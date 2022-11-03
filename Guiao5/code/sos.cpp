@@ -24,7 +24,7 @@
  * Uncomment the #include that applies
  */
 //#include "process.h"
-//#include "thread.h"
+#include "thread.h"
 
 namespace sos
 {
@@ -63,11 +63,14 @@ namespace sos
         FIFO fifo[2];
 
         /*
-         * TODO point
+         * TODO_ point
          * Declare here all you need to accomplish the synchronization,
          * semaphores (for implementation using processes) or
          * mutexes, conditions and condition variables (for implementation using threads)
          */
+        pthread_mutex_t fifoMutex[2];
+        pthread_cond_t fifoNotFull[2];
+        pthread_cond_t fifoNotEmpty[2];
     };
 
     /** \brief pointer to shared area dynamically allocated */
@@ -88,9 +91,10 @@ namespace sos
         require(sharedArea == NULL, "Shared area must not exist");
 
         /* 
-         * TODO point
+         * TODO_done point
          * Allocate the shared memory
          */
+        sharedArea = (SharedArea *) malloc(sizeof(SharedArea));
 
         /* init fifo 0 (free buffers) */
         FIFO *fifo = &sharedArea->fifo[FREE_BUFFER];
@@ -111,9 +115,17 @@ namespace sos
         fifo->cnt = 0;
 
         /* 
-         * TODO point
+         * TODO_ point
          * Init synchronization elements
          */
+        pthread_mutex_init(&sharedArea->fifoMutex[FREE_BUFFER], NULL);
+        pthread_cond_init(&sharedArea->fifoNotFull[FREE_BUFFER], NULL);
+        pthread_cond_init(&sharedArea->fifoNotEmpty[FREE_BUFFER], NULL);
+
+        pthread_mutex_init(&sharedArea->fifoMutex[PENDING_REQUEST], NULL);
+        pthread_cond_init(&sharedArea->fifoNotFull[PENDING_REQUEST], NULL);
+        pthread_cond_init(&sharedArea->fifoNotEmpty[PENDING_REQUEST], NULL);
+
     }
 
     /* -------------------------------------------------------------------- */
@@ -127,11 +139,14 @@ namespace sos
          * TODO point
          * Destroy synchronization elements
          */
+        pthread_mutex_destroy(&sharedArea->fifoMutex[FREE_BUFFER]);
+        pthread_mutex_destroy(&sharedArea->fifoMutex[PENDING_REQUEST]);
 
         /* 
-         * TODO point
+         * TODO_ point
         *  Destroy the shared memory
         */
+       free(sharedArea);
 
         /* nullify */
         sharedArea = NULL;
@@ -155,6 +170,21 @@ namespace sos
          * Replace with your code, 
          * avoiding race conditions and busy waiting
          */
+        pthread_mutex_lock(&sharedArea->fifoMutex[idx]);
+
+        while( sharedArea->fifo[idx].cnt == NBUFFERS ) { // wait while fifo is full
+                cond_wait(&sharedArea->fifoNotFull[idx], &sharedArea->fifoMutex[idx]);
+        }
+
+        FIFO *fifo = &sharedArea->fifo[idx];
+
+        fifo->tokens[fifo->ii] = token;
+        fifo->ii = (fifo->ii + 1) % NBUFFERS;
+        fifo->cnt++;
+
+        cond_broadcast(&sharedArea->fifoNotEmpty[idx]);
+
+        pthread_mutex_unlock(&sharedArea->fifoMutex[idx]);
     }
 
     /* -------------------------------------------------------------------- */
@@ -174,6 +204,17 @@ namespace sos
          * Replace with your code, 
          * avoiding race conditions and busy waiting
          */
+        pthread_mutex_lock(&sharedArea->fifoMutex[idx]);
+
+        while( sharedArea->fifo[idx].cnt == 0 ) { // wait while fifo is empty
+                cond_wait(&sharedArea->fifoNotEmpty[idx], &sharedArea->fifoMutex[idx]);
+        }
+
+        uint32_t token = sharedArea->fifo[idx].tokens[sharedArea->fifo->ri];
+
+        cond_broadcast(&sharedArea->fifoNotFull[idx]);
+
+        pthread_mutex_unlock(&sharedArea->fifoMutex[idx]);
     }
 
     /* -------------------------------------------------------------------- */

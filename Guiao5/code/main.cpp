@@ -21,10 +21,10 @@
 #include  "sos.h"
 
 /*
- * TODO point
+ * TODO_done point
  * Uncomment the #include that applies
  */
-//#include  "thread.h"
+#include  "thread.h"
 //#include  "process.h"
 #include  "utils.h"
 #include  "dbc.h"
@@ -74,13 +74,12 @@ fprintf(stderr, "%s(id: %u)\n", __FUNCTION__, id);
 /* The server life cycle */
 
 /*
- * Possible TODO point
+ * Possible TODO_ point
  * This function does not have the signature required by the pthread_create function.
  * Be aware of that if you are implementing concurrency using threads.
  * Do not change this server function. 
  * If you need it to have a different signature, create a wrapper function that calls this one.
  */
-
 void server(uint32_t id)
 {
 #ifdef __DEBUG__
@@ -93,6 +92,12 @@ fprintf(stderr, "%s(id: %u)\n", __FUNCTION__, id);
         processRequest(id);
     }
 }
+void *serverWrapper(void *argp) 
+{
+    ARGV* argv = (ARGV*) argp;
+    server((uint32_t) argv->id);
+    return NULL;
+}
 
 /* ******************************************************* */
 /* string generator */
@@ -102,7 +107,8 @@ const char *generateString(uint32_t id)
     char str[MAX_STRING_LEN+1];
     sprintf(str, "%02u", id);
     str[2] = ' ';
-    str[3] = '-';
+    str[3] = '-';    
+
     str[4] = ' ';
     uint32_t n1 = random_int(7, 9);
     uint32_t n2 = random_int(n1+10, MAX_STRING_LEN/2);
@@ -139,7 +145,7 @@ fprintf(stderr, "%s(id: %u, req: \"%s\", ...)\n", __FUNCTION__, id, req);
 /* The client life cycle */
 
 /* 
- * Possible TODO point
+ * Possible TODO_ point
  * This function does not have the signature required by the pthread_create function.
  * Be aware of that if you are implementing concurrency using threads.
  * Do not change this client function. 
@@ -165,6 +171,12 @@ fprintf(stderr, "%s(id: %u, niter: %u, ...)\n", __FUNCTION__, id, niter);
         printf("\e[32;01m| %-50s | %02u,%02u,%02u | %02u |\e[0m\n", 
                 req, resp.noChars, resp.noDigits, resp.noLetters, id);
     }
+}
+void *clientWrapper(void *argp) 
+{
+    ARGV* argv = (ARGV*) argp;
+    client((uint32_t) argv->id, (uint32_t) argv->niter);
+    return NULL;
 }
 
 /* ******************************************************* */
@@ -225,33 +237,57 @@ int main(int argc, char *argv[])
     /* launching the servers */
 
     /* 
-     * TODO point
+     * TODO_done point
      * Replace this comment with your code to launch the servers' processes/threads
      */
+    printf("Starting servers...\n");
+    pthread_t servers[nservers];
+    ARGV serversARGS[nservers];
+    for (uint32_t i=0; i<nservers; i++) {
+        serversARGS[i].id = i;
+        pthread_create(&servers[i], NULL, serverWrapper, &serversARGS[i]);
+    }
+    printf("Started servers succefully\n");
+    
 
     /* launching the clients */
 
     /* 
-     * TODO point 
+     * TODO_ point 
      * Replace this comment with your code to launch the clients' processes/threads 
      */
+    printf("Starting clients...\n");
+    pthread_t clients[nclients];
+    ARGV clientsARGS[nclients];
+    for (uint32_t i=0; i<nclients; i++) {
+        clientsARGS[i].id = i;
+        clientsARGS[i].niter = niter;
+        pthread_create(&clients[i], NULL, clientWrapper, &clientsARGS[i]);
+    }
+    printf("Started clients succefully\n");
 
     /* waiting for client to conclude */
 
     /* 
-     * TODO point
+     * TODO_ point
      * Replace this comment with your code to wait for clients termination
      */
+    for (uint32_t i=0; i<nclients; i++) {
+        pthread_join((pthread_t) clients[i], NULL);
+    }
 
     /* waiting for servers to conclude */
 
     /* 
-     * TODO point
+     * TODO_ point
      * Replace this comment with your code to wait for servers termination.
      * Be aware that the servers are in a infinite loop processing requests.
      * So, they must be informed to finish their job.
      * This can be done sending to every one of them an empty request string.
      */
+    for (uint32_t i=0; i<nservers; i++) { // TODO send the empty request string to terminate server
+        pthread_join(servers[i], NULL);
+    }
 
     /* quitting */
     return EXIT_SUCCESS;
