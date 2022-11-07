@@ -42,15 +42,13 @@ int full_pfifo(PriorityFIFO* pfifo)
 void insert_pfifo(PriorityFIFO* pfifo, uint32_t id, uint32_t priority)
 {
    require (pfifo != NULL, "NULL pointer to FIFO");   // a false value indicates a program error
-   require (id <= MAX_ID, "invalid id");              // a false value indicates a program error
+   require (id <= MAX_ID + 1, "invalid id");              // a false value indicates a program error
    require (priority > 0 && priority <= MAX_PRIORITY, "invalid priority value");  // a false value indicates a program error
 
    // printf("[insert_pfifo] value=%d, priority=%d, pfifo->inp=%d, pfifo->out=%d\n", id, priority, pfifo->inp, pfifo->out);
 
    pthread_mutex_lock(&pfifo->mutex);
-   // printf("[insert_pfifo] locked\n");
    while( full_pfifo(pfifo) ) {
-      // printf("[insert_pfifo] full\n");
       pthread_cond_wait(&pfifo->notFull, &pfifo->mutex);
    }
    require (!full_pfifo(pfifo), "full FIFO");         // in a shared fifo, it may not result from a program error!
@@ -73,9 +71,6 @@ void insert_pfifo(PriorityFIFO* pfifo, uint32_t id, uint32_t priority)
 
    pthread_cond_broadcast(&pfifo->notEmpty);
    pthread_mutex_unlock(&pfifo->mutex);
-
-   // printf("[insert_pfifo] unlocked\n");
-
 }
 
 /* --------------------------------------- */
@@ -87,13 +82,11 @@ uint32_t retrieve_pfifo(PriorityFIFO* pfifo)
    // require (!empty_pfifo(pfifo), "empty FIFO");       // in a shared fifo, it may not result from a program error!
 
    pthread_mutex_lock(&pfifo->mutex);
-   // printf("[retrive_pfifo] locked\n");
    while( empty_pfifo(pfifo) ) {
-      // printf("[retrive_pfifo] empty\n");
       pthread_cond_wait(&pfifo->notEmpty, &pfifo->mutex);
    }
 
-   check_valid_id(pfifo->array[pfifo->out].id);
+   if (pfifo->array[pfifo->out].id!=MAX_PATIENTS) check_valid_id(pfifo->array[pfifo->out].id);
    check_valid_priority(pfifo->array[pfifo->out].priority);
 
    uint32_t result = pfifo->array[pfifo->out].id;
@@ -113,8 +106,6 @@ uint32_t retrieve_pfifo(PriorityFIFO* pfifo)
 
    pthread_cond_broadcast(&pfifo->notFull);
    pthread_mutex_unlock(&pfifo->mutex);
-
-   // printf("[retrive_pfifo] unlocked\n");
 
    return result;
 }

@@ -19,7 +19,7 @@
 #include  "settings.h"
 #include  "pfifo.h"
 
-//#include "thread.h"
+// #include "thread. h"
 //#include "process.h"
 
 #include <iostream>
@@ -41,6 +41,8 @@ typedef struct
 {
    char name[MAX_NAME+1];
    int done; // 0: waiting for consultation; 1: consultation finished
+   pthread_mutex_t mutex;
+   pthread_cond_t treated;
 } Patient;
 
 typedef struct
@@ -99,24 +101,35 @@ void init_simulation(uint32_t np, uint32_t nnurses, uint32_t ndoctors)
    {
       patients_ids[i] = i;
       pthread_create(&patients[i], NULL, patient_life, (void*) &patients_ids[i]);
-      // patient_life((void *) &patients_ids[i]);
    }
+
 
    for (uint32_t i = 0; i < np; i++)
    {
       pthread_join(patients[i], NULL);
    }
 
+   printf("----------- All Patients Treated -----------\n");
+   fflush(stdout);
+
+   /* send finished call to nurses and doctors*/
+   for (uint32_t i = 0; i < nnurses; i++) {
+      insert_pfifo(&hd->triage_queue, MAX_PATIENTS, 1);
+   }
+   for (uint32_t i = 0; i < ndoctors; i++) {
+      insert_pfifo(&hd->doctor_queue, MAX_PATIENTS, 1);
+   }
+
    /* terminate nurses threads */
    for (uint32_t i = 0; i < nnurses; i++)
    {
-      pthread_cancel(nurses[i]);
+      pthread_join(nurses[i], NULL);
    }
 
    /* terminate doctors threads */
    for (uint32_t i = 0; i < ndoctors; i++)
    {
-      pthread_cancel(doctors[i]);
+      pthread_join(doctors[i], NULL);
    }
    
 
@@ -128,6 +141,9 @@ void nurse_iteration()
 {
    printf("\e[34;01mNurse: get next patient\e[0m\n");
    uint32_t patient = retrieve_pfifo(&hd->triage_queue);
+
+   if (patient==MAX_PATIENTS) pthread_exit(0);
+
    printf("[Nurse] patient recieved %d\n", patient);
    check_valid_patient(patient);
    printf("\e[34;01mNurse: evaluate patient %u priority\e[0m\n", patient);
@@ -148,11 +164,16 @@ void doctor_iteration()
 {
    printf("\e[32;01mDoctor: get next patient\e[0m\n");
    uint32_t patient = retrieve_pfifo(&hd->doctor_queue);
+
+   if (patient==MAX_PATIENTS) pthread_exit(0);
+
    check_valid_patient(patient);
    printf("\e[32;01mDoctor: treat patient %u\e[0m\n", patient);
    random_wait();
    printf("\e[32;01mDoctor: patient %u treated\e[0m\n", patient);
    hd->all_patients[patient].done = 1;
+   pthread_cond_broadcast(&hd->all_patients[patient].treated);
+   
 }
 void* doctor_routine(void *arg)
 {
@@ -165,19 +186,25 @@ void* doctor_routine(void *arg)
 
 void patient_goto_urgency(int id)
 {
-   // printf("[patient_goto_urgency] start %d\n", id);
    new_patient(&hd->all_patients[id]);
    check_valid_name(hd->all_patients[id].name);
    printf("\e[30;01mPatient %s (number %u): get to hospital\e[0m\n", hd->all_patients[id].name, id);
    insert_pfifo(&hd->triage_queue, id, 1); // all elements in triage queue with the same priority!
-   // printf("[patient_goto_urgency] patient %d inserted on triege_queue\n", id);
 }
 
 /* changes may be required to this function */
 void patient_wait_end_of_consultation(int id)
 {
    check_valid_name(hd->all_patients[id].name);
-   while( hd->all_patients[id].done!=1 );
+
+   pthread_mutex_lock(&hd->all_patients[id].mutex);
+
+   while( hd->all_patients[id].done!=1 ) {
+      pthread_cond_wait(&hd->all_patients[id].treated, &hd->all_patients[id].mutex);
+   }
+   
+   pthread_mutex_unlock(&hd->all_patients[id].mutex);
+
    printf("\e[30;01mPatient %s (number %u): health problems treated\e[0m\n", hd->all_patients[id].name, id);
 }
 
@@ -185,23 +212,19 @@ void patient_wait_end_of_consultation(int id)
 void* patient_life(void* arg)
 {
    uint32_t id = *(uint32_t*) arg;
-   // printf("[patient_life] patient id %d\n", id);
    patient_goto_urgency(id);
-   // nurse_iteration();  // to be deleted in concurrent version
-   // doctor_iteration(); // to be deleted in concurrent version
    patient_wait_end_of_consultation(id);
-   // printf("[patient_life] %d treated!\n", id);
    memset(&(hd->all_patients[id]), 0, sizeof(Patient)); // patient finished
-   return NULL;
+   pthread_exit(0);
 }
 
 /* ************************************************* */
 
 int main(int argc, char *argv[])
 {
-   uint32_t npatients = 10;  ///< number of patients
-   uint32_t nnurses = 2;    ///< number of triage nurses
-   uint32_t ndoctors = 2;   ///< number of doctors
+   uint32_t npatients = 4;  ///< number of patients
+   uint32_t nnurses = 1;    ///< number of triage nurses
+   uint32_t ndoctors = 1;   ///< number of doctors
 
    /* command line processing */
    int option;
@@ -248,15 +271,6 @@ int main(int argc, char *argv[])
 
    /* init simulation */
    init_simulation(npatients, nnurses, ndoctors);
-
-
-   /* dummy code to show a very simple sequential behavior */
-   // for(uint32_t i = 0; i < npatients; i++)
-   // {
-   //    printf("\n");
-   //    random_wait(); // random wait for patience creation
-   //    patient_life(i);
-   // }
 
    return EXIT_SUCCESS;
 }
